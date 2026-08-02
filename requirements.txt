@@ -7,3 +7,5 @@ imutils
 dlib-bin
 torch
 torchvision
+joblib
+av
