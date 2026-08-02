@@ -4,6 +4,6 @@ opencv-python-headless
 numpy
 scipy
 imutils
-torchvision
---index-url https://download.pytorch.org/whl/cpu
+dlib-bin
 torch
+torchvision
