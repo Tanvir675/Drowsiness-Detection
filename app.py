@@ -8,9 +8,8 @@ import bz2
 from collections import deque
 import av
 import streamlit as st
-from streamlit_webrtc import webrtc_streamer, VideoProcessorBase, RTCConfiguration
+from streamlit_webrtc import webrtc_streamer, VideoProcessorBase, RTCConfiguration, WebRtcMode
 from scipy.stats import skew, kurtosis, iqr, entropy
-from streamlit_webrtc import webrtc_streamer, WebRtcMode
 
 # ==========================================
 # 1. FEATURE EXTRACTION & CLASSICAL DESCRIPTORS
@@ -376,5 +375,6 @@ RTC_CONFIGURATION = RTCConfiguration({"iceServers": [{"urls": ["stun:stun.l.goog
 webrtc_streamer(
     key="camera",
     mode=WebRtcMode.SENDRECV,
-    video_processor_factory=VideoProcessor
+    rtc_configuration=RTC_CONFIGURATION,
+    video_processor_factory=DrowsinessProcessor
 )
