@@ -370,7 +370,13 @@ st.set_page_config(page_title="Real-Time Drowsiness Detector", layout="centered"
 st.title("🚗 Real-Time Driver Drowsiness Detection System")
 st.write("Using browser WebRTC streaming, Dlib facial landmarks, and classical ML feature extraction.")
 
-RTC_CONFIGURATION = RTCConfiguration({"iceServers": [{"urls": ["stun:stun.l.google.com:19302"]}]})
+RTC_CONFIGURATION = RTCConfiguration({
+    "iceServers": [
+        {"urls": ["stun:stun.l.google.com:19302"]},
+        {"urls": ["stun:stun1.l.google.com:19302"]},
+        {"urls": ["stun:stun2.l.google.com:19302"]}
+    ]
+})
 
 webrtc_streamer(
     key="camera",
