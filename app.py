@@ -10,6 +10,7 @@ import av
 import streamlit as st
 from streamlit_webrtc import webrtc_streamer, VideoProcessorBase, RTCConfiguration
 from scipy.stats import skew, kurtosis, iqr, entropy
+from streamlit_webrtc import webrtc_streamer, WebRtcMode
 
 # ==========================================
 # 1. FEATURE EXTRACTION & CLASSICAL DESCRIPTORS
@@ -373,9 +374,7 @@ st.write("Using browser WebRTC streaming, Dlib facial landmarks, and classical M
 RTC_CONFIGURATION = RTCConfiguration({"iceServers": [{"urls": ["stun:stun.l.google.com:19302"]}]})
 
 webrtc_streamer(
-    key="drowsiness-detection",
-    mode="sendrecv",
-    rtc_configuration=RTC_CONFIGURATION,
-    video_processor_factory=DrowsinessProcessor,
-    media_stream_constraints={"video": True, "audio": False},
+    key="camera",
+    mode=WebRtcMode.SENDRECV,
+    video_processor_factory=VideoProcessor
 )
