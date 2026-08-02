@@ -8,7 +8,7 @@ import bz2
 from collections import deque
 import av
 import streamlit as st
-from streamlit_webrtc import webrtc_streamer, VideoProcessorBase, RTCConfiguration
+from streamlit_webrtc import webrtc_streamer, VideoProcessorBase, RTCConfiguration, WebRtcMode
 from scipy.stats import skew, kurtosis, iqr, entropy
 
 # ==========================================
@@ -373,9 +373,8 @@ st.write("Using browser WebRTC streaming, Dlib facial landmarks, and classical M
 RTC_CONFIGURATION = RTCConfiguration({"iceServers": [{"urls": ["stun:stun.l.google.com:19302"]}]})
 
 webrtc_streamer(
-    key="drowsiness-detection",
-    mode="sendrecv",
+    key="camera",
+    mode=WebRtcMode.SENDRECV,
     rtc_configuration=RTC_CONFIGURATION,
-    video_processor_factory=DrowsinessProcessor,
-    media_stream_constraints={"video": True, "audio": False},
+    video_processor_factory=DrowsinessProcessor
 )
