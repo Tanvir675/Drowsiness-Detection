@@ -8,4 +8,5 @@ dlib-bin
 torch
 torchvision
 joblib
+scikit-learn
 av
