@@ -382,5 +382,13 @@ webrtc_streamer(
     key="camera",
     mode=WebRtcMode.SENDRECV,
     rtc_configuration=RTC_CONFIGURATION,
-    video_processor_factory=DrowsinessProcessor
+    video_processor_factory=DrowsinessProcessor,
+    media_stream_constraints={
+        "video": {
+            "width": {"ideal": 640},
+            "height": {"ideal": 480},
+            "frameRate": {"ideal": 30}
+        },
+        "audio": False
+    }
 )
