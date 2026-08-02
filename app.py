@@ -6,6 +6,9 @@ import joblib
 import urllib.request
 import bz2
 from collections import deque
+import av
+import streamlit as st
+from streamlit_webrtc import webrtc_streamer, VideoProcessorBase, RTCConfiguration
 from scipy.stats import skew, kurtosis, iqr, entropy
 
 # ==========================================
@@ -114,17 +117,14 @@ class DlibAdvancedDrowsinessFeatureExtractor:
         self.detector = dlib.get_frontal_face_detector()
         self.predictor = dlib.shape_predictor(predictor_path)
         
-        # Temporal tracking states
         self.prev_avg_ear = None
         self.prev_mar = None
         self.prev_head_center = None
         
-        # Head pose moving average smoothers
         self.pitch_history = deque(maxlen=5)
         self.yaw_history = deque(maxlen=5)
         self.roll_history = deque(maxlen=5)
         
-        # Blink and PERCLOS tracking buffers (synced to the fast window size)
         self.ear_history = deque(maxlen=self.window_size)
         self.is_blinking = False
         self.blink_start_frame = 0
@@ -222,7 +222,6 @@ class DlibAdvancedDrowsinessFeatureExtractor:
         rect = faces[0]
         shape = self.predictor(gray, rect)
 
-        # OPTIMIZATION: Visual feedback (Draw Bounding Box and Facial Landmarks)
         cv2.rectangle(img_bgr, (rect.left(), rect.top()), (rect.right(), rect.bottom()), (0, 255, 255), 2)
         for idx in self.LEFT_EYE_INDICES + self.RIGHT_EYE_INDICES + self.MOUTH_INDICES:
             cv2.circle(img_bgr, (shape.part(idx).x, shape.part(idx).y), 2, (0, 255, 0), -1)
@@ -302,86 +301,81 @@ class DlibAdvancedDrowsinessFeatureExtractor:
 
 
 # ==========================================
-# 2. REAL-TIME WEBCAM INFERENCE LOOP
+# 2. STREAMLIT WEBRTC VIDEO PROCESSOR
 # ==========================================
-def run_realtime_drowsiness_detector(model_path="best_drowsiness_model_logistic_regression.pkl"):
-    print("-> Loading trained deployment package...")
-    if not os.path.exists(model_path):
-        print(f"Error: Model path '{model_path}' not found.")
-        return
+class DrowsinessProcessor(VideoProcessorBase):
+    def __init__(self):
+        model_path = "best_drowsiness_model_logistic_regression.pkl"
+        if os.path.exists(model_path):
+            package = joblib.load(model_path)
+            self.scaler = package["scaler"]
+            self.selector = package["selector"]
+            self.model = package["classifier"]
+            self.model_loaded = True
+        else:
+            self.model_loaded = False
 
-    package = joblib.load(model_path)
-    scaler = package["scaler"]
-    selector = package["selector"]
-    model = package["classifier"]
-    
-    print(f"-> Successfully loaded model: {package['model_name']}")
-
-    cap = cv2.VideoCapture(0)
-    if not cap.isOpened():
-        print("Error: Could not open webcam.")
-        return
-
-    # OPTIMIZATION: Set window size to 60 frames (~2 seconds) for ultra-fast reaction speed
-    window_size = 60
-    extractor = DlibAdvancedDrowsinessFeatureExtractor(fps=30, window_size=window_size)
-    frame_buffer = deque(maxlen=window_size)
-    
-    print("\nStarting real-time detection... Press 'q' to exit.")
-    
-    frame_idx = 0
-    inference_interval = 4  # Run heavy ML features every 4 frames to dramatically reduce overhead
-    
-    # State persistence cache to prevent rapid UI blinking
-    last_probability = 0.0
-    last_status_text = "Collecting Data..."
-    last_status_color = (255, 255, 0)
-
-    while cap.isOpened():
-        ret, frame = cap.read()
-        if not ret:
-            print("Error: Failed to grab frame.")
-            break
-
-        frame_idx += 1
+        self.window_size = 60
+        self.extractor = DlibAdvancedDrowsinessFeatureExtractor(fps=30, window_size=self.window_size)
+        self.frame_buffer = deque(maxlen=self.window_size)
+        self.frame_idx = 0
+        self.inference_interval = 4
         
-        # Extracts points, calculates base metrics, and renders tracking visuals onto the frame
-        features, face_detected = extractor.extract_frame_metrics(frame, frame_idx)
+        self.last_probability = 0.0
+        self.last_status_text = "Collecting Data..."
+        self.last_status_color = (255, 255, 0)
+
+    def recv(self, frame: av.VideoFrame) -> av.VideoFrame:
+        img = frame.to_ndarray(format="bgr24")
+        self.frame_idx += 1
+
+        features, face_detected = self.extractor.extract_frame_metrics(img, self.frame_idx)
         
         if face_detected:
-            frame_buffer.append(features)
+            self.frame_buffer.append(features)
         
-        # Run heavy analytical models selectively based on sub-sampling step
-        if len(frame_buffer) == window_size and (frame_idx % inference_interval == 0):
-            win_array = np.array(frame_buffer, dtype=np.float32)
+        if self.model_loaded and len(self.frame_buffer) == self.window_size and (self.frame_idx % self.inference_interval == 0):
+            win_array = np.array(self.frame_buffer, dtype=np.float32)
             tensor_win = torch.tensor(win_array, dtype=torch.float32).unsqueeze(0)
             
-            # Feature transformations
             classical_features = extract_advanced_classical_features(tensor_win)
-            scaled_features = scaler.transform(classical_features)
-            selected_features = selector.transform(scaled_features)
+            scaled_features = self.scaler.transform(classical_features)
+            selected_features = self.selector.transform(scaled_features)
             
-            last_probability = model.predict_proba(selected_features)[0, 1]
-            prediction = model.predict(selected_features)[0]
+            self.last_probability = self.model.predict_proba(selected_features)[0, 1]
+            prediction = self.model.predict(selected_features)[0]
             
-            if prediction == 1 or last_probability > 0.5:
-                last_status_text = f"DROWSY ALERT! ({last_probability:.2f})"
-                last_status_color = (0, 0, 255)  # Red
+            if prediction == 1 or self.last_probability > 0.5:
+                self.last_status_text = f"DROWSY ALERT! ({self.last_probability:.2f})"
+                self.last_status_color = (0, 0, 255)  # Red
             else:
-                last_status_text = f"Awake ({last_probability:.2f})"
-                last_status_color = (0, 255, 0)  # Green
+                self.last_status_text = f"Awake ({self.last_probability:.2f})"
+                self.last_status_color = (0, 255, 0)  # Green
+        elif not self.model_loaded:
+            self.last_status_text = "Model file missing!"
+            self.last_status_color = (0, 0, 255)
 
-        # UI Overlay details
-        cv2.putText(frame, last_status_text, (30, 50), cv2.FONT_HERSHEY_SIMPLEX, 0.8, last_status_color, 2)
-        cv2.putText(frame, f"Buffer: {len(frame_buffer)}/{window_size}", (30, 90), cv2.FONT_HERSHEY_SIMPLEX, 0.6, (255, 255, 255), 1)
-        
-        cv2.imshow("Real-Time Drowsiness Detection", frame)
+        # UI Overlay details onto the video frame
+        cv2.putText(img, self.last_status_text, (30, 50), cv2.FONT_HERSHEY_SIMPLEX, 0.8, self.last_status_color, 2)
+        cv2.putText(img, f"Buffer: {len(self.frame_buffer)}/{self.window_size}", (30, 90), cv2.FONT_HERSHEY_SIMPLEX, 0.6, (255, 255, 255), 1)
 
-        if cv2.waitKey(1) & 0xFF == ord('q'):
-            break
+        return av.VideoFrame.from_ndarray(img, format="bgr24")
 
-    cap.release()
-    cv2.destroyAllWindows()
 
-if __name__ == "__main__":
-    run_realtime_drowsiness_detector()
+# ==========================================
+# 3. STREAMLIT APP UI CONFIGURATION
+# ==========================================
+st.set_page_config(page_title="Real-Time Drowsiness Detector", layout="centered")
+
+st.title("🚗 Real-Time Driver Drowsiness Detection System")
+st.write("Using browser WebRTC streaming, Dlib facial landmarks, and classical ML feature extraction.")
+
+RTC_CONFIGURATION = RTCConfiguration({"iceServers": [{"urls": ["stun:stun.l.google.com:19302"]}]})
+
+webrtc_streamer(
+    key="drowsiness-detection",
+    mode="sendrecv",
+    rtc_configuration=RTC_CONFIGURATION,
+    video_processor_factory=DrowsinessProcessor,
+    media_stream_constraints={"video": True, "audio": False},
+)
