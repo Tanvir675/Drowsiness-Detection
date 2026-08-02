@@ -6,3 +6,4 @@ torch
 joblib
 scipy
 cmake
+./dlib-19.24.6-cp312-cp312-linux_x86_64.whl
